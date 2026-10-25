@@ -1,10 +1,10 @@
 # sym — Speak Your Mind
 
 A small Twitter-like microservice: post a short message over a REST API, give it an image, read it back, and follow
-every message on a Kafka stream. This service uses [Halyx API](https://halyx.dev), for cloud portability, and runs unchanged on **AWS**, **Azure** and **Google Cloud**. A Spring
+every message on a Kafka stream. It runs unchanged on **AWS**, **Azure** and **Google Cloud**, or with no cloud at all. A Spring
 profile picks which.
 
-sym uses [Halyx](https://halyx.dev) as its only cloud API. There's no AWS, Azure or Google Cloud SDK in its code,
+sym uses [Halyx API](https://halyx.dev) for cloud portability. There's no AWS, Azure or Google Cloud SDK in its code,
 and no cloud name, endpoint or ARN either.
 
 | | AWS | Azure | Google Cloud | `local` |
