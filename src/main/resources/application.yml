@@ -1,0 +1,156 @@
+# One jar on every cloud. Profiles pick:
+#   the cloud:    local (in memory, no cloud), aws, azure or gcp
+#   the feature:  cache (optional: message lookups cached in Redis or Valkey)
+# for example SPRING_PROFILES_ACTIVE=aws,cache. Cloud resource names come from SYM_* environment variables, with
+# defaults for a deployment that uses sym's names. Endpoints only a deployment knows (the Kafka bootstrap servers,
+# the cache, the Cosmos DB account) have no default, so a deployment that leaves one out fails at startup.
+spring:
+  application:
+    name: sym
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+
+halyx:
+  document-stores:
+    messages:
+      table: ${SYM_MESSAGES_TABLE:sym-messages}
+      sort-key: sk
+    hashtags:
+      table: ${SYM_HASHTAGS_TABLE:sym-hashtags}
+      sort-key: sk
+  stream-clusters:
+    voices:
+      bootstrap-servers: ${SYM_KAFKA_BOOTSTRAP_SERVERS}
+      auth:
+        type: ${SYM_KAFKA_AUTH:iam}
+  stream-producers:
+    message-posted:
+      topic: ${SYM_MESSAGES_TOPIC:sym-message-posted}
+      idempotent: true
+  stream-consumers:
+    hashtag-indexer:
+      topic: ${SYM_MESSAGES_TOPIC:sym-message-posted}
+      group: ${SYM_HASHTAG_INDEXER_GROUP:sym-hashtag-indexer}
+      start-position: earliest
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Clouds. Each names its provider after itself and adds what only that cloud needs.
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+halyx:
+  providers:
+    local:
+      type: memory
+  stream-clusters:
+    voices:
+      bootstrap-servers: memory:9092     # the memory provider's streams run in process
+      auth:
+        type: none
+
+---
+spring:
+  config:
+    activate:
+      on-profile: aws
+halyx:
+  providers:
+    aws:
+      type: aws
+      region: ${AWS_REGION:eu-west-2}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: azure
+halyx:
+  providers:
+    azure:
+      type: azure
+      properties:
+        azure.cosmos.endpoint: ${SYM_COSMOS_ENDPOINT}
+        azure.cosmos.database: ${SYM_COSMOS_DATABASE:sym}
+  # Event Hubs' Kafka endpoint, SYM_KAFKA_BOOTSTRAP_SERVERS=<namespace>.servicebus.windows.net:9093, with Entra ID
+
+---
+spring:
+  config:
+    activate:
+      on-profile: gcp
+halyx:
+  providers:
+    gcp:
+      type: gcp
+      properties:
+        gcp.project-id: ${GOOGLE_CLOUD_PROJECT}
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Features.
+
+---
+# Message lookups cached with @Cacheable in ElastiCache, Azure Managed Redis or Memorystore. Fail-open: when the
+# cache is down, lookups go to the document store instead of failing (health still reports the outage).
+spring:
+  config:
+    activate:
+      on-profile: cache
+halyx:
+  cache-manager:
+    endpoint: ${SYM_CACHE_ENDPOINT}
+    auth:
+      type: ${SYM_CACHE_AUTH:iam}
+    fail-open: true
+    default-ttl: ${SYM_CACHE_TTL:10m}
+    namespace-prefix: "sym:"
+    # JSON, readable in the cache; only sym's own classes are read back.
+    codec: json
+    trusted-packages: org.kamranzafar.sym
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local & cache
+halyx:
+  cache-manager:
+    endpoint: redis://memory:6379        # the memory provider's own cache
+    auth:
+      type: none
+
+---
+spring:
+  config:
+    activate:
+      on-profile: aws & cache
+halyx:
+  cache-manager:
+    auth:
+      username: ${SYM_CACHE_USER:sym}
+    properties:
+      aws.elasticache.cache-name: ${SYM_CACHE_NAME:sym}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: azure & cache
+halyx:
+  cache-manager:
+    auth:
+      username: ${SYM_CACHE_USER}        # the object id of the identity the access policy names
+
+# On Google Cloud, Memorystore with IAM and TLS: SYM_CACHE_ENDPOINT=rediss://<ip>:<port>, and the instance's CA file as
+# halyx.cache-manager.properties.redis.ca-certificate in the deployment's configuration.
