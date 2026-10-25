@@ -16,6 +16,7 @@ import software.amazon.awssdk.services.dynamodb.model.BillingMode;
 import software.amazon.awssdk.services.dynamodb.model.KeySchemaElement;
 import software.amazon.awssdk.services.dynamodb.model.KeyType;
 import software.amazon.awssdk.services.dynamodb.model.ScalarAttributeType;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import java.net.URI;
 import java.time.Duration;
@@ -24,8 +25,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The suite on the {@code aws} profile with the cache, against Floci for DynamoDB, Kafka standing in for MSK, and
- * Valkey standing in for ElastiCache. The tables are created as the infrastructure would create them.
+ * The suite on the {@code aws} profile with the cache, against Floci for DynamoDB and S3, Kafka standing in for MSK,
+ * and Valkey standing in for ElastiCache. The tables and bucket are created as the infrastructure would create them.
  */
 @Testcontainers(disabledWithoutDocker = true)
 class AwsEmulatorIT extends SymSuite {
@@ -45,6 +46,7 @@ class AwsEmulatorIT extends SymSuite {
     static void start() throws Exception {
         URI endpoint = URI.create("http://" + FLOCI.getHost() + ":" + FLOCI.getMappedPort(4566));
         createTables(endpoint);
+        createBucket(endpoint);
         SharedContainers.createTopic(KAFKA);
 
         Map<String, String> properties = new LinkedHashMap<>(SharedContainers.properties(KAFKA, VALKEY));
@@ -53,6 +55,7 @@ class AwsEmulatorIT extends SymSuite {
         properties.put("halyx.providers.aws.credentials.type", "static");
         properties.put("halyx.providers.aws.credentials.id", "test");
         properties.put("halyx.providers.aws.credentials.secret", "test");
+        properties.put("halyx.providers.aws.properties.aws.s3.path-style", "true");     // what only an emulator needs
         service = new InProcessService(List.of("aws", "cache"), properties);
     }
 
@@ -71,6 +74,15 @@ class AwsEmulatorIT extends SymSuite {
     @Override
     protected Expectations expected() {
         return new Expectations("aws", true, Duration.ofSeconds(60));
+    }
+
+    /** The images bucket, as the infrastructure would create it. */
+    private static void createBucket(URI endpoint) {
+        try (S3Client s3 = S3Client.builder().region(Region.US_EAST_1).endpointOverride(endpoint).forcePathStyle(true)
+                .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("test", "test")))
+                .build()) {
+            s3.createBucket(b -> b.bucket("sym-images"));
+        }
     }
 
     /** Both tables, with string pk and sk keys, as the infrastructure would create them. */

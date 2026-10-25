@@ -3,7 +3,7 @@
 #   the feature:  cache (optional: message lookups cached in Redis or Valkey)
 # for example SPRING_PROFILES_ACTIVE=aws,cache. Cloud resource names come from SYM_* environment variables, with
 # defaults for a deployment that uses sym's names. Endpoints only a deployment knows (the Kafka bootstrap servers,
-# the cache, the Cosmos DB account) have no default, so a deployment that leaves one out fails at startup.
+# the cache, the Cosmos DB and storage accounts) have no default, so a deployment that leaves one out fails at startup.
 spring:
   application:
     name: sym
@@ -20,6 +20,9 @@ management:
         enabled: true
 
 halyx:
+  blob-stores:
+    images:                              # message images: S3, Blob Storage, Cloud Storage, or memory
+      bucket: ${SYM_IMAGES_BUCKET:sym-images}
   document-stores:
     messages:
       table: ${SYM_MESSAGES_TABLE:sym-messages}
@@ -81,6 +84,7 @@ halyx:
     azure:
       type: azure
       properties:
+        azure.storage.account: ${SYM_STORAGE_ACCOUNT}
         azure.cosmos.endpoint: ${SYM_COSMOS_ENDPOINT}
         azure.cosmos.database: ${SYM_COSMOS_DATABASE:sym}
   # Event Hubs' Kafka endpoint, SYM_KAFKA_BOOTSTRAP_SERVERS=<namespace>.servicebus.windows.net:9093, with Entra ID

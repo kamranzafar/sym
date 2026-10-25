@@ -35,6 +35,10 @@ class ProfilesTest {
             assertThat(env.getProperty("halyx.stream-clusters.voices.auth.type")).isEqualTo("iam");
             assertThat(env.getProperty("halyx.document-stores.messages.table")).isEqualTo("sym-messages");
             assertThat(env.getProperty("halyx.document-stores.hashtags.table")).isEqualTo("sym-hashtags");
+            assertThat(env.getProperty("halyx.blob-stores.images.bucket")).isEqualTo("sym-images");
+            if (cloud.equals("azure")) {
+                assertThat(env.getProperty("halyx.providers.azure.properties.azure.storage.account")).isEqualTo("symstorage");
+            }
             assertThat(env.getProperty("halyx.cache-manager.endpoint")).isNull();
             assertThat(env.getProperty("halyx.providers.local.type")).isNull();
         }
@@ -75,6 +79,7 @@ class ProfilesTest {
                         "--SYM_CACHE_ENDPOINT=rediss://cache.example:6379",
                         "--SYM_CACHE_USER=00000000-0000-0000-0000-000000000000",
                         "--SYM_COSMOS_ENDPOINT=https://sym.documents.azure.com:443/",
+                        "--SYM_STORAGE_ACCOUNT=symstorage",
                         "--GOOGLE_CLOUD_PROJECT=acme-prod");
         Binder.get(context.getEnvironment()).bind("halyx", HalyxProperties.class).get();
         return context;

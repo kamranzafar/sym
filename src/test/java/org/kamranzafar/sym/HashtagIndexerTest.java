@@ -31,7 +31,8 @@ class HashtagIndexerTest {
             HashtagIndexer indexer = context.getBean(HashtagIndexer.class);
             HashtagRepository hashtags = context.getBean(HashtagRepository.class);
             String record = MessageRecords.posted(
-                    new Message("ada", "1792800000000-000000000001", "twice #again", Instant.parse("2026-10-24T00:00:00Z")));
+                    new Message("ada", "1792800000000-000000000001", "twice #again", Instant.parse("2026-10-24T00:00:00Z"),
+                            null));
 
             indexer.onMessagePosted(record);
             indexer.onMessagePosted(record);

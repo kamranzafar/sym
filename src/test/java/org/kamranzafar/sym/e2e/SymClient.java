@@ -8,6 +8,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -19,16 +20,20 @@ import java.util.Map;
 public final class SymClient {
 
     /** A response: its status and body, the body parsed when it is JSON. */
-    public record Response(int status, String body, Map<String, List<String>> headers) {
+    public record Response(int status, byte[] bytes, Map<String, List<String>> headers) {
+
+        public String body() {
+            return new String(bytes, StandardCharsets.UTF_8);
+        }
 
         @SuppressWarnings("unchecked")
         public Map<String, Object> json() {
-            return (Map<String, Object>) Json.parse(body);
+            return (Map<String, Object>) Json.parse(body());
         }
 
         @SuppressWarnings("unchecked")
         public List<Map<String, Object>> jsonList() {
-            return (List<Map<String, Object>>) Json.parse(body);
+            return (List<Map<String, Object>>) Json.parse(body());
         }
 
         public String header(String name) {
@@ -53,6 +58,16 @@ public final class SymClient {
                 .POST(HttpRequest.BodyPublishers.ofString(Json.write(json))));
     }
 
+    public Response put(String path, String contentType, byte[] body) {
+        HttpRequest.Builder request = HttpRequest.newBuilder(base.resolve(path))
+                .PUT(HttpRequest.BodyPublishers.ofByteArray(body));
+        return send(contentType == null ? request : request.header("Content-Type", contentType));
+    }
+
+    public Response delete(String path) {
+        return send(HttpRequest.newBuilder(base.resolve(path)).DELETE());
+    }
+
     /** Posts a message and returns its id, failing the test if the post isn't a 201. */
     public String postMessage(String author, String text) {
         Response response = post("/users/" + author + "/messages", Map.of("text", text));
@@ -64,8 +79,8 @@ public final class SymClient {
 
     private Response send(HttpRequest.Builder request) {
         try {
-            HttpResponse<String> response = http.send(request.timeout(Duration.ofSeconds(30)).build(),
-                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<byte[]> response = http.send(request.timeout(Duration.ofSeconds(30)).build(),
+                    HttpResponse.BodyHandlers.ofByteArray());
             return new Response(response.statusCode(), response.body(), response.headers().map());
         } catch (IOException e) {
             throw new UncheckedIOException(e);

@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -19,6 +21,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @TestMethodOrder(MethodOrderer.DisplayName.class)
 public abstract class SymSuite {
+
+    /** A 1×1 PNG, and the start of a JPEG (JFIF) file: sym checks the bytes a type's files start with. */
+    private static final byte[] PNG = Base64.getDecoder().decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
+    private static final byte[] JPEG = {(byte) 0xff, (byte) 0xd8, (byte) 0xff, (byte) 0xe0, 0, 0x10, 'J', 'F', 'I', 'F', 0};
+    private static final int MAX_IMAGE_BYTES = 1024 * 1024;
 
     private final String run = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
 
@@ -113,6 +121,77 @@ public abstract class SymSuite {
 
         assertThat(client().get("/users/" + author + "/messages/0000000000000-000000000000").status()).isEqualTo(404);
         assertThat(client().get("/users/" + author + "/messages/not-an-id").status()).isEqualTo(404);
+    }
+
+    @Test
+    void attachesAnImageAndServesItBack() {
+        String author = author("ida");
+        String message = "/users/" + author + "/messages/" + client().postMessage(author, "Look at this");
+        // read first: on the cache profile this caches the message without an image
+        assertThat(client().get(message).json()).doesNotContainKey("image");
+
+        SymClient.Response attached = client().put(message + "/image", "image/png", PNG);
+
+        assertThat(attached.status()).as(attached.body()).isEqualTo(200);
+        assertThat(attached.json()).containsEntry("image", message + "/image");
+        assertThat(client().get(message).json()).containsEntry("image", message + "/image");     // evicted, not stale
+        assertThat(client().get("/users/" + author + "/messages").jsonList().getFirst())
+                .containsEntry("image", message + "/image");
+        SymClient.Response image = client().get(message + "/image");
+        assertThat(image.status()).isEqualTo(200);
+        assertThat(image.header("Content-Type")).isEqualTo("image/png");
+        assertThat(image.header("X-Content-Type-Options")).isEqualTo("nosniff");
+        assertThat(image.bytes()).isEqualTo(PNG);
+    }
+
+    @Test
+    void replacesAndRemovesAnImage() {
+        String author = author("hedy");
+        String message = "/users/" + author + "/messages/" + client().postMessage(author, "Changing my mind");
+        assertThat(client().put(message + "/image", "image/png", PNG).status()).isEqualTo(200);
+
+        assertThat(client().put(message + "/image", "image/jpeg; charset=binary", JPEG).status()).isEqualTo(200);
+        SymClient.Response replaced = client().get(message + "/image");
+        assertThat(replaced.header("Content-Type")).isEqualTo("image/jpeg");
+        assertThat(replaced.bytes()).isEqualTo(JPEG);
+
+        assertThat(client().delete(message + "/image").status()).isEqualTo(204);
+        assertThat(client().get(message + "/image").status()).isEqualTo(404);
+        assertThat(client().get(message).json()).doesNotContainKey("image");
+        assertThat(client().delete(message + "/image").status()).isEqualTo(204);      // already gone: no harm
+    }
+
+    @Test
+    void takesAnImageOfExactly1Mb() {
+        String author = author("frances");
+        String message = "/users/" + author + "/messages/" + client().postMessage(author, "Big picture");
+        byte[] image = Arrays.copyOf(PNG, MAX_IMAGE_BYTES);
+
+        assertThat(client().put(message + "/image", "image/png", image).status()).isEqualTo(200);
+        assertThat(client().get(message + "/image").bytes()).isEqualTo(image);
+    }
+
+    @Test
+    void refusesImagesItCannotStore() {
+        String author = author("annie");
+        String message = "/users/" + author + "/messages/" + client().postMessage(author, "No picture");
+
+        assertThat(client().put(message + "/image", "image/png", new byte[0]).status()).isEqualTo(400);
+        assertThat(client().put(message + "/image", "image/jpeg", PNG).status()).isEqualTo(400);
+        assertThat(client().put(message + "/image", "text/html", "<p>hi</p>".getBytes()).status()).isEqualTo(415);
+        assertThat(client().put(message + "/image", null, PNG).status()).isEqualTo(415);
+        SymClient.Response tooLarge = client().put(message + "/image", "image/png",
+                Arrays.copyOf(PNG, MAX_IMAGE_BYTES + 1));
+        assertThat(tooLarge.status()).isEqualTo(413);
+        assertThat(tooLarge.json()).containsEntry("detail", "an image is at most 1 MB");
+        assertThat(client().get(message + "/image").status()).isEqualTo(404);
+        assertThat(client().get(message).json()).doesNotContainKey("image");
+
+        String unknown = "/users/" + author + "/messages/0000000000000-000000000000/image";
+        assertThat(client().put(unknown, "image/png", PNG).status()).isEqualTo(404);
+        assertThat(client().delete(unknown).status()).isEqualTo(404);
+        assertThat(client().put("/users/Not-A-Handle/messages/0000000000000-000000000000/image", "image/png", PNG)
+                .status()).isEqualTo(400);
     }
 
     private int postStatus(String author, String text) {

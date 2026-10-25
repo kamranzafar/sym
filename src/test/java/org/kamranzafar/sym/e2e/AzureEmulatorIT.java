@@ -3,6 +3,10 @@ package org.kamranzafar.sym.e2e;
 import com.azure.cosmos.CosmosClient;
 import com.azure.cosmos.CosmosClientBuilder;
 import com.azure.cosmos.models.CosmosContainerProperties;
+import com.azure.storage.blob.BlobContainerClient;
+import dev.halyx.Halyx;
+import dev.halyx.config.Credentials;
+import dev.halyx.config.ProviderConfig;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.testcontainers.containers.GenericContainer;
@@ -13,6 +17,7 @@ import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.utility.MountableFile;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -21,14 +26,17 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The suite on the {@code azure} profile with the cache, against Floci-az for Cosmos DB, Kafka standing in for Event
- * Hubs' Kafka endpoint, and Valkey standing in for Azure Managed Redis. The containers are created as the
- * infrastructure would create them.
+ * The suite on the {@code azure} profile with the cache, against Floci-az for Cosmos DB and Blob Storage, Kafka
+ * standing in for Event Hubs' Kafka endpoint, and Valkey standing in for Azure Managed Redis. The containers are
+ * created as the infrastructure would create them.
  */
 @Testcontainers(disabledWithoutDocker = true)
 class AzureEmulatorIT extends SymSuite {
 
+    private static final int PORT = 4577;
     private static final int TLS_PORT = 4578;
+    /** The well-known development storage account. */
+    private static final String ACCOUNT = "devstoreaccount1";
     /** The Cosmos DB emulator's well-known key. */
     private static final String COSMOS_KEY =
             "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
@@ -41,7 +49,7 @@ class AzureEmulatorIT extends SymSuite {
             .withEnv("QUARKUS_HTTP_SSL_CERTIFICATE_KEY_STORE_FILE", "/certs/cosmos.p12")
             .withEnv("QUARKUS_HTTP_SSL_CERTIFICATE_KEY_STORE_PASSWORD", "changeit")
             .withEnv("QUARKUS_HTTP_INSECURE_REQUESTS", "enabled")
-            .withExposedPorts(4577, TLS_PORT)
+            .withExposedPorts(PORT, TLS_PORT)
             .waitingFor(Wait.forLogMessage(".*Listening on.*https.*", 1));
     @Container
     static final KafkaContainer KAFKA = SharedContainers.kafka();
@@ -55,11 +63,15 @@ class AzureEmulatorIT extends SymSuite {
         // Only for the emulator's throwaway certificate: the Cosmos SDK's documented switch for emulators.
         System.setProperty("COSMOS.EMULATOR_SERVER_CERTIFICATE_VALIDATION_DISABLED", "true");
         String cosmosEndpoint = "https://localhost:" + FLOCI.getMappedPort(TLS_PORT) + "/";
+        String blobEndpoint = "http://" + FLOCI.getHost() + ":" + FLOCI.getMappedPort(PORT) + "/" + ACCOUNT;
         createContainers(cosmosEndpoint);
+        createImagesContainer(blobEndpoint);
         SharedContainers.createTopic(KAFKA);
 
         Map<String, String> properties = new LinkedHashMap<>(SharedContainers.properties(KAFKA, VALKEY));
         properties.put("SYM_COSMOS_ENDPOINT", cosmosEndpoint);
+        properties.put("SYM_STORAGE_ACCOUNT", ACCOUNT);
+        properties.put("halyx.providers.azure.endpoint", blobEndpoint);
         properties.put("SYM_CACHE_USER", "unused-without-entra-id");
         properties.put("halyx.providers.azure.credentials.type", "anonymous");
         properties.put("halyx.providers.azure.properties.azure.cosmos.key", COSMOS_KEY);
@@ -91,6 +103,14 @@ class AzureEmulatorIT extends SymSuite {
             for (String container : List.of("sym-messages", "sym-hashtags")) {
                 cosmos.getDatabase("sym").createContainerIfNotExists(new CosmosContainerProperties(container, "/pk"));
             }
+        }
+    }
+
+    /** The images blob container, as the infrastructure would create it. */
+    private static void createImagesContainer(String blobEndpoint) {
+        try (Halyx halyx = Halyx.builder().register("azure", ProviderConfig.of("azure")
+                .endpoint(URI.create(blobEndpoint)).credentials(Credentials.anonymous())).build()) {
+            halyx.provider("azure").blobStore("sym-images").unwrap(BlobContainerClient.class).createIfNotExists();
         }
     }
 

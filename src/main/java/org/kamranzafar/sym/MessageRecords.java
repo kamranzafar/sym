@@ -28,6 +28,6 @@ final class MessageRecords {
         Map<String, Object> body = Json.parseObject(json)
                 .orElseThrow(() -> new IllegalArgumentException("not a message record: " + json));
         return new Message((String) body.get("author"), (String) body.get("messageId"), (String) body.get("text"),
-                Instant.parse((String) body.get("postedAt")));
+                Instant.parse((String) body.get("postedAt")), null);
     }
 }
