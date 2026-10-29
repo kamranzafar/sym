@@ -114,10 +114,15 @@ class MessageController {
         return ProblemDetail.forStatusAndDetail(status, e.getMessage());
     }
 
-    /** The document store or the stream failed; Halyx raises the same exceptions on every cloud. */
+    /**
+     * The document store or the stream failed; Halyx raises the same exceptions on every cloud. Only a retryable
+     * failure (throttled or unavailable) asks the client to try again; anything else is a fault on our side.
+     */
     @ExceptionHandler(CloudException.class)
-    ProblemDetail unavailable(CloudException e) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "try again later");
+    ProblemDetail cloudFailure(CloudException e) {
+        return e.isRetryable()
+                ? ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "try again later")
+                : ProblemDetail.forStatus(HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
     private static String path(String author, String messageId) {

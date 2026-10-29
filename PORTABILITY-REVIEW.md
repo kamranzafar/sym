@@ -30,7 +30,7 @@ Halyx surface: blob store `images`; document stores `messages` and `hashtags`; s
 | Rule | Covered |
 |---|---|
 | C1 native clients | no `unwrap(` and no AWS, Azure or Google Cloud SDK imports in `src/main` |
-| C2 SDK exceptions | none; the image read catches Halyx's `NotFoundException`, which every provider raises for a missing blob, and the controller maps `CloudException` to 503 |
+| C2 SDK exceptions | none; the image read catches Halyx's `NotFoundException`, which every provider raises for a missing blob, and the controller maps a retryable `CloudException` to 503 and any other to 500 |
 | C3 messaging features | not applicable: no queues or topics, only a Kafka stream |
 | C4 presigned URLs | none: images are read and written through sym |
 | C5 transactional producers | `message-posted` is `idempotent: true`, not transactional, which Event Hubs supports |
